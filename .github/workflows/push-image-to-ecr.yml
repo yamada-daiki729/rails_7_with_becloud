@@ -35,8 +35,9 @@ jobs:
           echo ECR_REPOSITORY_NGINX=nginx >> $GITHUB_ENV
 
       - name: test secrets
-        run: echo secret "${{secrets.AWS_REGION }}" | sed 's/./& /g'
-        run: echo secret "${{secrets.AWS_ACCOUNT }}" | sed 's/./& /g'
+        run: |
+          echo secret "${{secrets.AWS_REGION }}" | sed 's/./& /g'
+          echo secret "${{secrets.AWS_ACCOUNT }}" | sed 's/./& /g'
 
       - name: Get ID Token
         run: |
