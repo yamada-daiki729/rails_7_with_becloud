@@ -19,8 +19,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v3
-          with:
-            node-version: '16.x'
 
       - name: Configure AWS ENV
         run: |
