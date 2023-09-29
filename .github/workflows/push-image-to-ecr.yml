@@ -1,0 +1,83 @@
+name: Biild Image And Push To Amazon ECR
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  Build-And-Push:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Sleep
+        run: sleep 5
+
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Configure AWS ENV
+        run: |
+          export AWS_ROLE_ARN="arn:aws:iam::${{secrets.AWS_ACCOUNT}}:role/github-actions-oidc"
+          echo AWS_ROLE_ARN=$AWS_ROLE_ARN >> $GITHUB_ENV
+
+          export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+          export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/awscreds
+
+          echo AWS_WEB_IDENTITY_TOKEN_FILE=$AWS_WEB_IDENTITY_TOKEN_FILE >> $GITHUB_ENV
+          echo AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION >> $GITHUB_ENV
+          echo IMAGE_TAG=latest >> $GITHUB_ENV
+          echo ECR_REPOSITORY_APP=app >> $GITHUB_ENV
+          echo ECR_REPOSITORY_NGINX=nginx >> $GITHUB_ENV
+
+      - name: Get ID Token
+        run: |
+          curl -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" | jq -r '.value' > $AWS_WEB_IDENTITY_TOKEN_FILE
+
+      - name: Get AWS Keys
+        uses: aws-actions/configure-aws-credentials@master
+        with:
+          role-skip-session-tagging: true
+          role-to-assume: "${{ env.AWS_ROLE_ARN }}"
+          web-identity-token-file: "${{ env.AWS_WEB_IDENTITY_TOKEN_FILE }}"
+          role-duration-seconds: 1200
+          role-session-name: GitHubActionsSession
+          aws-region: "${{ env.AWS_DEFAULT_REGION }}"
+          # aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          # aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR(staging)
+        if: ${{ github.ref != 'refs/heads/main' }}
+        env:
+          ECR_REGISTRY_STAGING: ${{ steps.login-ecr.outputs.registry }}
+          ENV_TYPE_STAGING: "staging"
+        run: |
+          docker build -q -f ecs/Dockerfile . -t $ECR_REGISTRY_STAGING/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}
+          docker build -q -f ecs/nginx/Dockerfile . -t $ECR_REGISTRY_STAGING/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY_STAGING/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY_STAGING/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}
+          echo '[{"name": "'app-${ENV_TYPE_STAGING}-container'", "imageUri": "'${ECR_REGISTRY_STAGING}/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}'"},{"name": "'nginx-${ENV_TYPE_STAGING}-container'", "imageUri": "'$ECR_REGISTRY_STAGING/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_STAGING}:${{ env.IMAGE_TAG }}'"}]' > imagedefinitions.json
+          zip imagedefinitions.json.zip imagedefinitions.json
+          aws s3 cp ./imagedefinitions.json.zip s3://${ENV_TYPE_STAGING}-try-app-bucket/
+
+      - name: Build, tag, and push image to Amazon ECR(production)
+        if: ${{ github.ref == 'refs/heads/main' }}
+        env:
+          ECR_REGISTRY_PRODUCTION: ${{ steps.login-ecr.outputs.registry }}
+          ENV_TYPE_PRODUCTION: "production"
+        run: |
+          docker build -q -f ecs/Dockerfile . -t $ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}
+          docker build -q -f ecs/nginx/Dockerfile . -t $ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}
+          echo '[{"name": "'app-${ENV_TYPE_PRODUCTION}-container'", "imageUri": "'$ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_APP }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}'"},{"name": "'nginx-${ENV_TYPE_PRODUCTION}-container'", "imageUri": "'$ECR_REGISTRY_PRODUCTION/${{ env.ECR_REPOSITORY_NGINX }}-${ENV_TYPE_PRODUCTION}:${{ env.IMAGE_TAG }}'"}]' > imagedefinitions.json
+          zip imagedefinitions.json.zip imagedefinitions.json
+          aws s3 cp ./imagedefinitions.json.zip s3://${ENV_TYPE_PRODUCTION}-try-app-bucket/
