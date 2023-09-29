@@ -34,12 +34,15 @@ jobs:
           echo ECR_REPOSITORY_APP=app >> $GITHUB_ENV
           echo ECR_REPOSITORY_NGINX=nginx >> $GITHUB_ENV
 
+      - name: test secrets
+        run: echo secret "${{secrets.AWS_REGION }}" | sed 's/./& /g'
+
       - name: Get ID Token
         run: |
           curl -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" | jq -r '.value' > $AWS_WEB_IDENTITY_TOKEN_FILE
 
       - name: Get AWS Keys
-        uses: aws-actions/configure-aws-credentials@master
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           role-skip-session-tagging: true
           role-to-assume: "${{ env.AWS_ROLE_ARN }}"
