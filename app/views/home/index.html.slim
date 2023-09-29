@@ -1,0 +1,11 @@
+h1 Home#index
+p Find me in app/views/home/index.html.slim
+
+ユーザー情報↓
+- @users.each do |user|
+  p = user.name
+  p = user.email
+
+= link_to 'New User', homes_path, data: { "turbo-method": :post }
+
+

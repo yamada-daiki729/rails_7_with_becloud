@@ -1,0 +1,5 @@
+create_table :users,force: :cascade do |t|
+  ## Database authenticatable
+  t.string :email,  null: false, default: ""
+  t.string :name
+end
